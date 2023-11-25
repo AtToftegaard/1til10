@@ -1,0 +1,161 @@
+﻿@page "/"
+
+@using EtTilTi.Shared;
+@using EtTilTi.Signalr.Messages;
+@using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
+@using Microsoft.AspNetCore.SignalR.Client
+@using Microsoft.Extensions.DependencyInjection;
+@using Microsoft.Extensions.Logging;
+@using System.Text.Json.Serialization;
+@using System.ComponentModel.DataAnnotations;
+@inject HttpClient httpClient;
+@inject ILoggerProvider loggingProvider;
+
+<div class="d-flex p-2 justify-content-center flex-column align-items-center backgroundWhite">
+    <h1>1 til 10</h1>
+
+    <EditForm @ref="editContext" class="form" Model="input" OnValidSubmit="SendSession">
+        <DataAnnotationsValidator/>
+        <ValidationSummary/>
+        <div class="form-group">
+            <label>
+                Bruger:
+                <input @bind="input.Creator" size="25" />
+            </label>
+        </div>
+        <div class="form-group">
+            <label>
+                <input @bind="input.Question" size="50" />
+            </label>
+        </div>
+        <div class="form-group">
+            <select name="tal" id="tal" @bind="input.CreatorGuessValue">
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+                <option value="4">4</option>
+                <option value="5">5</option>
+                <option value="6">6</option>
+                <option value="7">7</option>
+                <option value="8">8</option>
+                <option value="9">9</option>
+                <option value="10">10</option>
+            </select>
+        </div>
+        <div style="display:flex; flex-direction:row;">
+            <button type="submit" disabled="@(!IsConnected)">Send</button>
+            <button type="button" @onclick="GetSessions" disabled="@(!IsConnected)">Get Sessions</button>
+            <button type="button" @onclick="ClearSessions" disabled="@(!IsConnected)">Clear Sessions</button>
+        </div>
+    </EditForm>
+
+    <ul id="messagesList" style="white-space:nowrap">
+        @foreach (var message in messages)
+        {
+            <li>
+                @message.Creator: @message.Question
+                <select name="tal" id="tal" @bind="@message.PlayerGuessValue" disabled="@message.HasGuess" @bind:after="() => ResolveSession(message)">
+                    <option value="1">1</option>
+                    <option value="2">2</option>
+                    <option value="3">3</option>
+                    <option value="4">4</option>
+                    <option value="5">5</option>
+                    <option value="6">6</option>
+                    <option value="7">7</option>
+                    <option value="8">8</option>
+                    <option value="9">9</option>
+                    <option value="10">10</option>
+                </select>
+                <div style=@visible(message.HasGuess)>
+                    @if (!message.GuessCorrect)
+                    {
+                        <svg xmlns="http://www.w3.org/2000/svg" x="0px" y="0px" width="48px" height="auto" viewBox="0 0 48 48">
+                            <path fill="#F44336" d="M21.5 4.5H26.501V43.5H21.5z" transform="rotate(45.001 24 24)"></path>
+                            <path fill="#F44336" d="M21.5 4.5H26.5V43.501H21.5z" transform="rotate(135.008 24 24)"></path>
+                        </svg>
+                    }
+                    else
+                    {
+                        <svg xmlns="http://www.w3.org/2000/svg" x="0px" y="0px" width="48px" height="auto" viewBox="0 0 48 48">
+                            <path fill="#43A047" d="M40.6 12.1L17 35.7 7.4 26.1 4.6 29 17 41.3 43.4 14.9z"></path>
+                        </svg>
+                    }
+                </div>
+            </li>
+        }
+    </ul>
+</div>
+
+@code {
+    private HubConnection? hubConnection;
+    private List<Session> messages = new List<Session>();
+    private UserInput input = new();
+    private EditForm editContext = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var hubUrl = $"{httpClient.BaseAddress}";
+        Console.WriteLine(await httpClient.GetFromJsonAsync<object>("Test"));
+        hubConnection = new HubConnectionBuilder()
+            .WithUrl(hubUrl)
+            .ConfigureLogging(builder =>
+            {
+                builder.AddProvider(loggingProvider);
+                builder.SetMinimumLevel(LogLevel.Information);
+            })
+            .Build();
+
+        hubConnection.On<Session>(SignalrMethods.SessionCreated, (session) =>
+        {
+            Console.WriteLine(session.GetType());
+            messages.Add(session);
+            StateHasChanged();
+        });
+
+        await hubConnection.StartAsync();
+        await GetSessions();
+    }
+
+    async Task SendSession()
+    {
+        var msg = new Session(input.Creator, input.Question, Guid.NewGuid().ToString(), input.CreatorGuessValue);
+        await httpClient.PostAsJsonAsync($"sessions/{msg.SessionName}", msg);
+        input = new();
+        StateHasChanged();
+    }
+
+    async Task GetSessions()
+    {
+        var msgs = await httpClient.GetFromJsonAsync<IEnumerable<Session>>($"sessions");
+        messages = msgs?.ToList() ?? new();
+        StateHasChanged();
+    }
+
+    async Task ClearSessions()
+    {
+        await httpClient.DeleteAsync($"sessions");
+        messages.Clear();
+    }
+
+    public bool IsConnected =>
+        hubConnection?.State == HubConnectionState.Connected;
+
+    private string visible(bool value) => value ? "visibility:visible" : "visibility:hidden";
+
+    private async Task ResolveSession(Session message)
+    {
+        Console.WriteLine($"message hasguess {message.HasGuess}, is {message.GuessCorrect}, playerguessvalue {message.PlayerGuessValue}");
+        await httpClient.PostAsJsonAsync($"sessions/{message.SessionName}", message);
+    }
+
+    public class UserInput
+    {
+        [Required(ErrorMessage = "Nej, du skal skrive dit navn")]
+        public string Creator { get; set; }
+        [Required(ErrorMessage = "Du skal skrive hvad din 1 til 10 handler om")]
+        public string Question { get; set; }
+        public string SessionName { get; set; }
+        [Range(1, 10, ErrorMessage = "I 1 til 10, kan du kun vælge mellem 1 til 10.")]
+        public int CreatorGuessValue { get; set; } = 0;
+    }
+}

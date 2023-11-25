@@ -1,0 +1,29 @@
+﻿ul {
+    display: flex;
+    flex-direction: column;
+    flex-wrap: wrap;
+}
+
+li {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    justify-content: center;
+    align-items: center;
+}
+
+li div {
+    width: 10%
+}
+
+li select {
+    height: 24px;
+}
+
+button {
+    margin: 4px;
+}
+
+.backgroundWhite {
+    background-color: floralwhite
+}
