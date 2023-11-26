@@ -1,6 +1,9 @@
 ﻿using System.Net;
+using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using Azure;
+using Azure.Core.Serialization;
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
 using EtTilTi.Shared;
@@ -39,23 +42,13 @@ public class Functions
     public Session GetSession([HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "sessions/{session}")] HttpRequestData req,
         string session)
     {
-        //[BlobInput("sessions/{session}.txt", Connection = "StorageConnection")] string session
         var download = Container.GetBlobClient(session).DownloadContent();
         var content = download.Value.Content.ToString();
         return JsonSerializer.Deserialize<Session>(content);
     }
 
-    [Function("Test")]
-    public HttpResponseData Test([HttpTrigger(AuthorizationLevel.Anonymous, "get", "post")] HttpRequestData req)
-    {
-        var response = req.CreateResponse(HttpStatusCode.OK);
-        response.WriteAsJsonAsync(new { value = "yes!" });
-
-        return response;
-    }
-
     [Function(nameof(GetSessions))]
-    public async Task<IEnumerable<Session>> GetSessions([HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "sessions")] HttpRequestData req)
+    public async Task<HttpResponseData> GetSessions([HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "sessions")] HttpRequestData req)
     {
         var resultSegment = Container.GetBlobsAsync().AsPages(default, 10);
         var results = new List<Session>();
@@ -68,7 +61,9 @@ public class Functions
                 results.Add(JsonSerializer.Deserialize<Session>(content));
             }
         }
-        return results;
+        var response = req.CreateResponse(HttpStatusCode.OK);
+        await response.WriteAsJsonAsync(results, new JsonObjectSerializer(WithoutGuessValue));
+        return response;
     }
 
     [Function(nameof(DeleteSessions))]
@@ -86,4 +81,23 @@ public class Functions
 
     private static BlobContainerClient Container =>
         new(Environment.GetEnvironmentVariable("StorageConnection"), Environment.GetEnvironmentVariable("SessionContainerName"));
+
+    static JsonSerializerOptions WithoutGuessValue => new JsonSerializerOptions
+    {
+        TypeInfoResolver = new DefaultJsonTypeInfoResolver
+        {
+            Modifiers = { IgnoresGuessProperty }
+        }
+    };
+
+    static void IgnoresGuessProperty(JsonTypeInfo typeInfo)
+    {
+        if (typeInfo.Type != typeof(Session))
+            return;
+        foreach (JsonPropertyInfo propertyInfo in typeInfo.Properties)
+        {
+            if (propertyInfo.Name == nameof(Session.CreatorGuessValue) || propertyInfo.Name == nameof(Session.PlayerGuessValue))
+                propertyInfo.ShouldSerialize = (obj, value) => ((Session)obj).HasGuess;
+        }
+    }
 }

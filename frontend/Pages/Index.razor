@@ -94,10 +94,8 @@
 
     protected override async Task OnInitializedAsync()
     {
-        var hubUrl = $"{httpClient.BaseAddress}";
-        Console.WriteLine(await httpClient.GetFromJsonAsync<object>("Test"));
         hubConnection = new HubConnectionBuilder()
-            .WithUrl(hubUrl)
+            .WithUrl(httpClient.BaseAddress!)
             .ConfigureLogging(builder =>
             {
                 builder.AddProvider(loggingProvider);
@@ -107,8 +105,15 @@
 
         hubConnection.On<Session>(SignalrMethods.SessionCreated, (session) =>
         {
-            Console.WriteLine(session.GetType());
             messages.Add(session);
+            StateHasChanged();
+        });
+
+        hubConnection.On<Session>(SignalrMethods.SessionUpdated, (session) =>
+        {
+            var index = messages.FindIndex(x => x.SessionName == session.SessionName);
+            if (index != -1)
+                messages[index] = session;
             StateHasChanged();
         });
 
@@ -144,7 +149,6 @@
 
     private async Task ResolveSession(Session message)
     {
-        Console.WriteLine($"message hasguess {message.HasGuess}, is {message.GuessCorrect}, playerguessvalue {message.PlayerGuessValue}");
         await httpClient.PostAsJsonAsync($"sessions/{message.SessionName}", message);
     }
 
